@@ -4,6 +4,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   AlignmentType,
+  BorderStyle,
   Document as DocxDocument,
   DocumentGridType,
   Footer,
@@ -386,7 +387,7 @@ function WritePageContent() {
     const lineParagraph = (size: number) =>
       new Paragraph({
         border: {
-          bottom: { color: '000000', size, space: 1 },
+          bottom: { color: '000000', size, space: 1, style: BorderStyle.SINGLE },
         },
         spacing: { before: 0, after: 0, line: twipFromPt(5), lineRule: LineRuleType.EXACT },
       })
@@ -423,7 +424,7 @@ function WritePageContent() {
         paragraphs.push(
           new Paragraph({
             border: {
-              bottom: { color: 'C00000', size: 12, space: 1 },
+              bottom: { color: 'C00000', size: 12, space: 1, style: BorderStyle.SINGLE },
             },
             spacing: { before: twipFromPt(4), after: twipFromPt(6) },
           }),
