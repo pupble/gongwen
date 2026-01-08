@@ -614,15 +614,8 @@ function WritePageContent() {
     })
   }
 
-  const downloadMarkdown = (force = false) => {
+  const doExportMarkdown = () => {
     if (!content.trim()) return
-    const issues = buildPreflightItems(content)
-    if (issues.length > 0 && !force) {
-      setPreflightItems(issues)
-      setShowPreflight(true)
-      setPendingExport('md')
-      return
-    }
     const markdown = buildGovMarkdown(content)
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -642,15 +635,8 @@ function WritePageContent() {
     URL.revokeObjectURL(url)
   }
 
-  const downloadDocx = async (force = false) => {
+  const doExportDocx = async () => {
     if (!content.trim()) return
-    const issues = buildPreflightItems(content)
-    if (issues.length > 0 && !force) {
-      setPreflightItems(issues)
-      setShowPreflight(true)
-      setPendingExport('docx')
-      return
-    }
     const doc = buildGovDocx(normalizeContent(content), strictLayout)
     const blob = await Packer.toBlob(doc)
     const url = URL.createObjectURL(blob)
@@ -668,6 +654,30 @@ function WritePageContent() {
     link.download = filename
     link.click()
     URL.revokeObjectURL(url)
+  }
+
+  const downloadMarkdown = () => {
+    if (!content.trim()) return
+    const issues = buildPreflightItems(content)
+    if (issues.length > 0) {
+      setPreflightItems(issues)
+      setShowPreflight(true)
+      setPendingExport('md')
+      return
+    }
+    doExportMarkdown()
+  }
+
+  const downloadDocx = async () => {
+    if (!content.trim()) return
+    const issues = buildPreflightItems(content)
+    if (issues.length > 0) {
+      setPreflightItems(issues)
+      setShowPreflight(true)
+      setPendingExport('docx')
+      return
+    }
+    await doExportDocx()
   }
 
   useEffect(() => {
@@ -788,10 +798,10 @@ function WritePageContent() {
   const preflightIssues = content.trim() ? buildPreflightItems(content) : []
   const handleContinueExport = async () => {
     if (pendingExport === 'md') {
-      downloadMarkdown(true)
+      doExportMarkdown()
     }
     if (pendingExport === 'docx') {
-      await downloadDocx(true)
+      await doExportDocx()
     }
     setShowPreflight(false)
     setPendingExport(null)
