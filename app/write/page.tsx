@@ -117,6 +117,28 @@ function WritePageContent() {
     robustness: '',
     conclusion: '',
   })
+  const samplePaperFields = {
+    title: '数字化转型、融资约束与企业绿色创新',
+    abstract:
+      '基于2012—2022年中国A股制造业上市公司数据，本文从融资约束视角检验数字化转型对企业绿色创新的影响。采用双向固定效应模型，并结合工具变量与倾向得分匹配进行稳健性检验。结果表明，数字化转型显著促进企业绿色创新，融资约束在其中发挥部分中介作用，政策环境与行业竞争强化这一效应。研究为数字化与绿色转型协同推进提供经验证据。',
+    keywords: '数字化转型；融资约束；绿色创新；双向固定效应；中介效应',
+    introduction:
+      '在“双碳”目标背景下，企业绿色创新成为高质量发展的关键路径。数字化转型通过信息透明与资源配置优化可能提升绿色创新，但其影响机制与边界条件仍需检验。本文从融资约束视角切入，构建理论框架并提供经验证据。',
+    literature:
+      '现有研究关注数字化转型对生产效率与创新的影响，也有文献讨论融资约束对创新的抑制作用，但二者结合的机制研究相对不足。本文补充数字化转型缓解融资约束进而促进绿色创新的证据。',
+    variables:
+      '被解释变量为绿色创新（绿色专利申请数）。核心解释变量为数字化转型指数（基于年报文本与IT投入）。控制变量包括企业规模、资产负债率、盈利能力、成长性与行业竞争度等。',
+    model:
+      '构建数字化转型影响绿色创新的理论路径：数字化提升信息披露与资源配置效率，缓解融资约束，进而提升绿色创新投入与产出。',
+    design:
+      '采用双向固定效应模型进行基准回归，进一步使用工具变量法缓解内生性；通过PSM-DID与替换指标进行稳健性检验。',
+    results:
+      '基准回归显示数字化转型对绿色创新具有显著正向影响。机制检验表明融资约束起部分中介作用。异质性分析发现在高竞争行业和政策支持地区效应更强。',
+    robustness:
+      '使用替代指标、滞后项、剔除极端值与不同样本窗口后结论稳健；安慰剂检验未发现虚假效应。',
+    conclusion:
+      '数字化转型可显著促进企业绿色创新，政策应鼓励数字化投入并完善绿色金融支持体系，以缓解融资约束。',
+  }
   const [editPrompt, setEditPrompt] = useState('')
   const [isPolishing, setIsPolishing] = useState(false)
   const [selection, setSelection] = useState({ start: 0, end: 0 })
@@ -1142,6 +1164,18 @@ function WritePageContent() {
                           setPaperFields((prev) => ({ ...prev, title: e.target.value }))
                         }
                       />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setPaperFields(samplePaperFields)}
+                        className="rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 hover:border-blue-300 hover:text-blue-700"
+                      >
+                        填充示例
+                      </button>
+                      <span className="text-xs text-slate-500">
+                        点击可查看完整论文结构示例
+                      </span>
                     </div>
                     <div className="grid gap-3">
                       <div>
