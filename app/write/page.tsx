@@ -1575,7 +1575,7 @@ function WritePageContent() {
       let data: { error?: string; content?: string }
       try {
         data = JSON.parse(rawText)
-      } catch (error) {
+      } catch {
         throw new Error(
           `服务返回非JSON内容：${rawText.slice(0, 200)}${rawText.length > 200 ? '…' : ''}`,
         )
