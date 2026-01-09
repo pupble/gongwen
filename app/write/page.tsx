@@ -513,6 +513,17 @@ function WritePageContent() {
     eastAsia: 'SimHei',
   }
 
+  const paperBodyFont = {
+    ascii: 'Times New Roman',
+    hAnsi: 'Times New Roman',
+    eastAsia: 'SimSun',
+  }
+  const paperAbstractFont = {
+    ascii: 'Times New Roman',
+    hAnsi: 'Times New Roman',
+    eastAsia: 'FangSong',
+  }
+
   const detectTitleIndex = (lines: string[]) => {
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i].trim()
@@ -884,6 +895,193 @@ function WritePageContent() {
     })
   }
 
+  const buildPaperDocx = (text: string) => {
+    const lines = normalizeContent(text).split(/\r?\n/)
+    const paragraphs: Paragraph[] = []
+    const bodySpacing = {
+      line: twipFromPt(18),
+      lineRule: LineRuleType.EXACT,
+      before: 0,
+      after: 0,
+    }
+
+    const titleLineIndex = lines.findIndex((line) => line.trim())
+    let consumedTitle = false
+
+    const pushParagraph = (
+      content: string,
+      {
+        font = paperBodyFont,
+        size = 24,
+        bold = false,
+        align = AlignmentType.LEFT,
+        indentFirstLine = true,
+      }: {
+        font?: { ascii: string; hAnsi: string; eastAsia: string }
+        size?: number
+        bold?: boolean
+        align?: (typeof AlignmentType)[keyof typeof AlignmentType]
+        indentFirstLine?: boolean
+      },
+    ) => {
+      paragraphs.push(
+        new Paragraph({
+          alignment: align,
+          spacing: bodySpacing,
+          indent: indentFirstLine ? { firstLine: twipFromPt(24) } : undefined,
+          children: [
+            new TextRun({
+              text: content,
+              font,
+              size,
+              bold,
+            }),
+          ],
+        }),
+      )
+    }
+
+    lines.forEach((rawLine, index) => {
+      const line = rawLine.trim()
+      if (!line) {
+        paragraphs.push(new Paragraph({ spacing: bodySpacing }))
+        return
+      }
+
+      if (!consumedTitle) {
+        if (/^题目[:：]/.test(line)) {
+          const title = line.replace(/^题目[:：]/, '').trim()
+          if (title) {
+            pushParagraph(title, {
+              font: songFont,
+              size: 32,
+              bold: true,
+              align: AlignmentType.CENTER,
+              indentFirstLine: false,
+            })
+            consumedTitle = true
+            return
+          }
+        }
+        if (index === titleLineIndex) {
+          pushParagraph(line, {
+            font: songFont,
+            size: 32,
+            bold: true,
+            align: AlignmentType.CENTER,
+            indentFirstLine: false,
+          })
+          consumedTitle = true
+          return
+        }
+      }
+
+      if (/^摘要[:：]/.test(line)) {
+        const text = line.replace(/^摘要[:：]/, '').trim()
+        pushParagraph(`摘要：${text}`, {
+          font: paperAbstractFont,
+          size: 21,
+          align: AlignmentType.LEFT,
+          indentFirstLine: false,
+        })
+        return
+      }
+
+      if (/^关键词[:：]/.test(line)) {
+        const text = line.replace(/^关键词[:：]/, '').trim()
+        pushParagraph(`关键词：${text}`, {
+          font: paperAbstractFont,
+          size: 21,
+          align: AlignmentType.LEFT,
+          indentFirstLine: false,
+        })
+        return
+      }
+
+      if (/^[一二三四五六七八九十]+、/.test(line)) {
+        pushParagraph(line, {
+          font: songFont,
+          size: 28,
+          bold: false,
+          align: AlignmentType.CENTER,
+          indentFirstLine: false,
+        })
+        return
+      }
+
+      if (/^（[一二三四五六七八九十]+）/.test(line)) {
+        pushParagraph(line, {
+          font: paperBodyFont,
+          size: 24,
+          bold: false,
+          align: AlignmentType.LEFT,
+          indentFirstLine: false,
+        })
+        return
+      }
+
+      if (/^\d+\./.test(line) || /^（\d+）/.test(line)) {
+        pushParagraph(line, {
+          font: paperBodyFont,
+          size: 24,
+          bold: false,
+          align: AlignmentType.LEFT,
+          indentFirstLine: false,
+        })
+        return
+      }
+
+      pushParagraph(line, {
+        font: paperBodyFont,
+        size: 24,
+        bold: false,
+        align: AlignmentType.LEFT,
+        indentFirstLine: true,
+      })
+    })
+
+    const footer = new Footer({
+      children: [
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 0, after: 0 },
+          children: [
+            new TextRun({ text: '—', font: paperBodyFont, size: 21 }),
+            new TextRun({ children: [PageNumber.CURRENT], font: paperBodyFont, size: 21 }),
+            new TextRun({ text: '—', font: paperBodyFont, size: 21 }),
+          ],
+        }),
+      ],
+    })
+
+    return new DocxDocument({
+      sections: [
+        {
+          properties: {
+            page: {
+              size: {
+                width: twipFromMm(210),
+                height: twipFromMm(297),
+              },
+              margin: {
+                top: twipFromMm(25.4),
+                left: twipFromMm(25.4),
+                right: twipFromMm(25.4),
+                bottom: twipFromMm(25.4),
+                header: twipFromMm(15),
+                footer: twipFromMm(15),
+              },
+            },
+          },
+          footers: {
+            default: footer,
+          },
+          children: paragraphs,
+        },
+      ],
+    })
+  }
+
   const doExportMarkdown = () => {
     if (!content.trim()) return
     const markdown = buildGovMarkdown(content)
@@ -907,7 +1105,10 @@ function WritePageContent() {
 
   const doExportDocx = async () => {
     if (!content.trim()) return
-    const doc = buildGovDocx(normalizeContent(content), strictLayout)
+    const doc =
+      writingMode === 'paper'
+        ? buildPaperDocx(content)
+        : buildGovDocx(normalizeContent(content), strictLayout)
     const blob = await Packer.toBlob(doc)
     const url = URL.createObjectURL(blob)
 
