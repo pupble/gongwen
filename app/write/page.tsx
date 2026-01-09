@@ -104,19 +104,6 @@ function WritePageContent() {
     paperTemplates[0].id,
   )
   const [customPaperTemplate, setCustomPaperTemplate] = useState('')
-  const [paperFields, setPaperFields] = useState({
-    title: '',
-    abstract: '',
-    keywords: '',
-    introduction: '',
-    literature: '',
-    variables: '',
-    model: '',
-    design: '',
-    results: '',
-    robustness: '',
-    conclusion: '',
-  })
   const [paperExtraPrompt, setPaperExtraPrompt] = useState('')
   const [paperDraft, setPaperDraft] = useState('')
   const [paperSections, setPaperSections] = useState<string[]>([
@@ -132,28 +119,35 @@ function WritePageContent() {
     'robustness',
     'conclusion',
   ])
-  const samplePaperFields = {
-    title: '数字化转型、融资约束与企业绿色创新',
-    abstract:
-      '基于2012—2022年中国A股制造业上市公司数据，本文从融资约束视角检验数字化转型对企业绿色创新的影响。采用双向固定效应模型，并结合工具变量与倾向得分匹配进行稳健性检验。结果表明，数字化转型显著促进企业绿色创新，融资约束在其中发挥部分中介作用，政策环境与行业竞争强化这一效应。研究为数字化与绿色转型协同推进提供经验证据。',
-    keywords: '数字化转型；融资约束；绿色创新；双向固定效应；中介效应',
-    introduction:
-      '在“双碳”目标背景下，企业绿色创新成为高质量发展的关键路径。数字化转型通过信息透明与资源配置优化可能提升绿色创新，但其影响机制与边界条件仍需检验。本文从融资约束视角切入，构建理论框架并提供经验证据。',
-    literature:
-      '现有研究关注数字化转型对生产效率与创新的影响，也有文献讨论融资约束对创新的抑制作用，但二者结合的机制研究相对不足。本文补充数字化转型缓解融资约束进而促进绿色创新的证据。',
-    variables:
-      '被解释变量为绿色创新（绿色专利申请数）。核心解释变量为数字化转型指数（基于年报文本与IT投入）。控制变量包括企业规模、资产负债率、盈利能力、成长性与行业竞争度等。',
-    model:
-      '构建数字化转型影响绿色创新的理论路径：数字化提升信息披露与资源配置效率，缓解融资约束，进而提升绿色创新投入与产出。',
-    design:
-      '采用双向固定效应模型进行基准回归，进一步使用工具变量法缓解内生性；通过PSM-DID与替换指标进行稳健性检验。',
-    results:
-      '基准回归显示数字化转型对绿色创新具有显著正向影响。机制检验表明融资约束起部分中介作用。异质性分析发现在高竞争行业和政策支持地区效应更强。',
-    robustness:
-      '使用替代指标、滞后项、剔除极端值与不同样本窗口后结论稳健；安慰剂检验未发现虚假效应。',
-    conclusion:
-      '数字化转型可显著促进企业绿色创新，政策应鼓励数字化投入并完善绿色金融支持体系，以缓解融资约束。',
-  }
+  const samplePaperDraft = `研究主题：数字化转型对企业绿色创新的影响
+
+研究背景与意义：
+在“双碳”目标背景下，绿色创新成为高质量发展的关键路径。数字化转型可能通过提升信息透明、优化资源配置与创新协同，促进绿色创新，但机制与边界条件需要实证检验。
+
+核心问题与假设：
+问题1：数字化转型是否促进企业绿色创新？
+问题2：融资约束是否发挥中介作用？
+问题3：政策环境与行业竞争是否存在异质性影响？
+
+数据与样本：
+2012—2022年中国A股制造业上市公司；剔除ST、金融业与缺失值样本。
+
+变量与指标：
+被解释变量：绿色创新（绿色专利申请数/授权数）
+核心解释变量：数字化转型指数（年报文本+IT投入）
+控制变量：规模、资产负债率、盈利能力、成长性、行业竞争度等
+
+识别策略：
+双向固定效应模型；工具变量法缓解内生性；PSM-DID与替换指标稳健性检验。
+
+主要结果：
+数字化转型显著促进绿色创新；融资约束部分中介；高竞争行业与政策支持地区效应更强。
+
+拓展与稳健性：
+替代指标、滞后项、剔除极端值、安慰剂检验。
+
+结论与政策含义：
+鼓励数字化投入与绿色金融支持，缓解融资约束，促进绿色创新。`
   const [editPrompt, setEditPrompt] = useState('')
   const [isPolishing, setIsPolishing] = useState(false)
   const [selection, setSelection] = useState({ start: 0, end: 0 })
@@ -271,26 +265,6 @@ function WritePageContent() {
         : paperTemplates.find((item) => item.id === selectedPaperTemplateId)?.promptPrefix ?? ''
 
     const selectedSpecs = paperSectionSpecs.filter((item) => paperSections.includes(item.key))
-    const sections = [
-      ['题目', paperFields.title],
-      ['摘要', paperFields.abstract],
-      ['关键词', paperFields.keywords],
-      ['引言', paperFields.introduction],
-      ['文献综述', paperFields.literature],
-      ['变量选择与数据来源', paperFields.variables],
-      ['理论模型与研究假设', paperFields.model],
-      ['研究设计与识别策略', paperFields.design],
-      ['实证结果分析', paperFields.results],
-      ['拓展分析/稳健性检验', paperFields.robustness],
-      ['结论与政策含义', paperFields.conclusion],
-    ]
-      .filter(([label]) =>
-        selectedSpecs.some((spec) => spec.label === label),
-      )
-      .filter(([, value]) => value.trim())
-      .map(([label, value]) => `${label}：\n${value.trim()}`)
-      .join('\n\n')
-
     return [
       '请根据以下材料生成经济研究风格论文草稿，要求结构完整、表述严谨。',
       `输出结构（仅限选定部分）：${selectedSpecs.map((item) => item.label).join('、')}`,
@@ -299,7 +273,6 @@ function WritePageContent() {
         .join('；')}。总字数目标约30000字。`,
       paperDraft ? `原始草稿材料：\n${paperDraft.trim()}` : '',
       templatePrefix,
-      sections,
       paperExtraPrompt,
     ]
       .map((item) => item.trim())
@@ -1314,62 +1287,17 @@ function WritePageContent() {
                         onChange={(e) => setPaperDraft(e.target.value)}
                       />
                     </div>
-                    <div>
-                      <label htmlFor="paperTitle" className="block text-sm font-medium text-gray-700">
-                        论文题目
-                      </label>
-                      <input
-                        id="paperTitle"
-                        className="mt-1 block w-full rounded-lg border-gray-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        placeholder="请输入论文题目或研究主题"
-                        value={paperFields.title}
-                        onChange={(e) =>
-                          setPaperFields((prev) => ({ ...prev, title: e.target.value }))
-                        }
-                      />
-                    </div>
                     <div className="flex flex-wrap items-center gap-3">
                       <button
                         type="button"
-                        onClick={() => setPaperFields(samplePaperFields)}
+                        onClick={() => setPaperDraft(samplePaperDraft)}
                         className="rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 hover:border-blue-300 hover:text-blue-700"
                       >
-                        填充示例
+                        填充示例草稿
                       </button>
                       <span className="text-xs text-slate-500">
-                        点击可查看完整论文结构示例
+                        一键查看经济研究论文草稿示例
                       </span>
-                    </div>
-                    <div className="grid gap-3">
-                      <div>
-                        <label htmlFor="paperAbstract" className="block text-sm font-medium text-gray-700">
-                          摘要材料
-                        </label>
-                        <textarea
-                          id="paperAbstract"
-                          rows={3}
-                          className="mt-1 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                          placeholder="研究背景、核心问题、方法与结论"
-                          value={paperFields.abstract}
-                          onChange={(e) =>
-                            setPaperFields((prev) => ({ ...prev, abstract: e.target.value }))
-                          }
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="paperKeywords" className="block text-sm font-medium text-gray-700">
-                          关键词
-                        </label>
-                        <input
-                          id="paperKeywords"
-                          className="mt-1 block w-full rounded-lg border-gray-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                          placeholder="如：政策评估、双重差分、产业升级"
-                          value={paperFields.keywords}
-                          onChange={(e) =>
-                            setPaperFields((prev) => ({ ...prev, keywords: e.target.value }))
-                          }
-                        />
-                      </div>
                     </div>
                     <div>
                       <div className="text-sm font-medium text-gray-700">论文模板</div>
@@ -1424,36 +1352,6 @@ function WritePageContent() {
                       <div className="mt-2 text-xs text-slate-500">
                         未选择的部分不会生成；字数范围按经济研究期刊风格控制。
                       </div>
-                    </div>
-                    <div className="space-y-3">
-                      {[
-                        { key: 'introduction', label: '引言材料' },
-                        { key: 'literature', label: '文献综述要点' },
-                        { key: 'variables', label: '变量选择与数据' },
-                        { key: 'model', label: '理论模型与机制' },
-                        { key: 'design', label: '研究设计与识别策略' },
-                        { key: 'results', label: '实证结果分析' },
-                        { key: 'robustness', label: '拓展与稳健性' },
-                        { key: 'conclusion', label: '结论与政策含义' },
-                      ].map((item) => (
-                        <div key={item.key}>
-                          <label className="block text-sm font-medium text-gray-700">
-                            {item.label}
-                          </label>
-                          <textarea
-                            rows={3}
-                            className="mt-1 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                            placeholder={`输入${item.label}材料`}
-                            value={paperFields[item.key as keyof typeof paperFields]}
-                            onChange={(e) =>
-                              setPaperFields((prev) => ({
-                                ...prev,
-                                [item.key]: e.target.value,
-                              }))
-                            }
-                          />
-                        </div>
-                      ))}
                     </div>
                     <div>
                       <label htmlFor="paperExtraPrompt" className="block text-sm font-medium text-gray-700">
