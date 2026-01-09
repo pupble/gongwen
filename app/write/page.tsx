@@ -75,6 +75,7 @@ function WritePageContent() {
   const [prompt, setPrompt] = useState('')
   const [selectedTemplateId, setSelectedTemplateId] = useState(templateOptions[0].id)
   const [customTemplate, setCustomTemplate] = useState('')
+  const [templateWarning, setTemplateWarning] = useState<string | null>(null)
   const [editPrompt, setEditPrompt] = useState('')
   const [isPolishing, setIsPolishing] = useState(false)
   const [selection, setSelection] = useState({ start: 0, end: 0 })
@@ -149,6 +150,21 @@ function WritePageContent() {
     setMissingElements(missing)
   }
 
+  const checkTemplateCompleteness = (value: string) => {
+    const normalized = value.trim()
+    if (!normalized) {
+      return ['请补充模板要求内容']
+    }
+    const missing: string[] = []
+    const hasAddressee = /主送|各单位|各部门|各学院/.test(normalized)
+    const hasSignature = /落款|署名|沈阳师范大学|某处室|某学院/.test(normalized)
+    const hasDate = /成文日期|日期|YYYY年MM月DD日/.test(normalized)
+    if (!hasAddressee) missing.push('主送要求')
+    if (!hasSignature) missing.push('落款要求')
+    if (!hasDate) missing.push('成文日期要求')
+    return missing
+  }
+
   const buildPreflightItems = (value: string) => {
     const lines = value.split(/\r?\n/)
     const items: { id: string; label: string; position: number }[] = []
@@ -193,9 +209,16 @@ function WritePageContent() {
     const placeholderRegex = /〔[^〕]*占位[^〕]*〕/g
     let match: RegExpExecArray | null
     while ((match = placeholderRegex.exec(value)) !== null) {
+      const text = match[0]
+      let kind = '占位'
+      if (/文号|发文/.test(text)) kind = '文号'
+      else if (/日期|YYYY/.test(text)) kind = '日期'
+      else if (/主送/.test(text)) kind = '主送'
+      else if (/落款|署名/.test(text)) kind = '落款'
+      else if (/附件/.test(text)) kind = '附件'
       items.push({
         id: `placeholder-${match.index}`,
-        label: `占位：${match[0]}`,
+        label: `${kind}占位：${text}`,
         position: match.index,
       })
     }
@@ -733,6 +756,27 @@ function WritePageContent() {
   }, [])
 
   useEffect(() => {
+    if (selectedTemplateId !== 'custom') {
+      setTemplateWarning(null)
+    }
+  }, [selectedTemplateId])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = window.localStorage.getItem('customTemplate')
+      if (stored) {
+        setCustomTemplate(stored)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('customTemplate', customTemplate)
+    }
+  }, [customTemplate])
+
+  useEffect(() => {
     if (content.trim() && history.length === 0) {
       setHistory([content])
       setHistoryIndex(0)
@@ -752,6 +796,15 @@ function WritePageContent() {
 
     setIsGenerating(true)
     try {
+      if (selectedTemplateId === 'custom') {
+        const missing = checkTemplateCompleteness(customTemplate)
+        if (missing.length > 0) {
+          setTemplateWarning(`模板要求缺少：${missing.join('、')}`)
+          setIsGenerating(false)
+          return
+        }
+      }
+      setTemplateWarning(null)
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: {
@@ -902,22 +955,19 @@ function WritePageContent() {
                 </div>
                 <div>
                   <div className="text-sm font-medium text-gray-700">模板与规范</div>
-                  <div className="mt-2 grid gap-2">
+                  <select
+                    value={selectedTemplateId}
+                    onChange={(e) => setSelectedTemplateId(e.target.value)}
+                    className="mt-2 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  >
                     {templateOptions.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setSelectedTemplateId(item.id)}
-                        className={`rounded-lg border px-3 py-2 text-left text-sm ${
-                          selectedTemplateId === item.id
-                            ? 'border-blue-500 bg-blue-50 text-blue-800'
-                            : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300'
-                        }`}
-                      >
-                        <div className="font-medium">{item.name}</div>
-                        <div className="text-xs text-slate-500">{item.description}</div>
-                      </button>
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
                     ))}
+                  </select>
+                  <div className="mt-2 text-xs text-slate-500">
+                    {templateOptions.find((item) => item.id === selectedTemplateId)?.description}
                   </div>
                   {selectedTemplateId === 'custom' && (
                     <textarea
@@ -929,6 +979,11 @@ function WritePageContent() {
                     />
                   )}
                 </div>
+                {templateWarning && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    {templateWarning}
+                  </div>
+                )}
                 <button
                   onClick={generateDocument}
                   disabled={!selectedType || isGenerating}
