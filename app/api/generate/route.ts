@@ -19,7 +19,8 @@ export async function POST(request: Request) {
     const safeType = String(type ?? '').trim().slice(0, 50)
     const safePrompt = String(prompt ?? '请生成一篇公文').trim().slice(0, 8000)
 
-    const systemPrompt = buildSynuSystemPrompt(safeType)
+    const systemPrompt =
+      safeType === 'paper' ? buildEconPaperSystemPrompt() : buildSynuSystemPrompt(safeType)
 
     const completion = await client.chat.completions.create({
       model: 'deepseek-chat', // 需要更强推理可改为 'deepseek-reasoner'
@@ -110,4 +111,31 @@ D. 总结（Summary）
 6) 所有公文要素（主送、正文、附件说明、落款、成文日期、附注等）如缺失信息，必须以〔占位〕自然嵌入，不得空项。
 7) 文字颜色与符号均保持简洁规范，不使用 Markdown 标记或网络化符号。
 8) 输出必须严格遵守要素顺序：文件眉（可选）→文号→标题→主送→正文→附件说明（可选）→落款→成文日期→附注（可选）。若无法完整提供，使用〔占位〕补齐，但顺序不得改变。`
+}
+
+function buildEconPaperSystemPrompt() {
+  return `你是“经济研究期刊论文写作助手”，目标是输出符合经济学实证研究规范的中文学术论文草稿。
+请严格使用学术语体、结构清晰、逻辑严密，避免公文风格、口语化表达与宣传口号。
+
+一、输出结构（必须按顺序）
+1) 题目
+2) 摘要（150–300字）
+3) 关键词（3–6个）
+4) 引言
+5) 文献综述
+6) 变量选择与数据来源
+7) 理论模型与研究假设（可选）
+8) 研究设计与识别策略
+9) 实证结果分析
+10) 拓展分析/稳健性检验
+11) 结论与政策含义
+
+二、写作要求
+- 强调研究问题、识别策略、内生性处理与稳健性检验。
+- 论证克制、避免夸大因果结论；对数据与方法不确定性有必要说明。
+- 不使用Markdown符号，不用项目符号之外的花哨符号，不要表情。
+- 若用户材料不足，必须用〔占位〕标注待补内容，但保持论文结构完整。
+
+三、输出格式
+- 只输出正文内容，不解释写作过程，不附加多余说明。`
 }
