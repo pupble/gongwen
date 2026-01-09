@@ -118,6 +118,20 @@ function WritePageContent() {
     conclusion: '',
   })
   const [paperExtraPrompt, setPaperExtraPrompt] = useState('')
+  const [paperDraft, setPaperDraft] = useState('')
+  const [paperSections, setPaperSections] = useState<string[]>([
+    'title',
+    'abstract',
+    'keywords',
+    'introduction',
+    'literature',
+    'variables',
+    'model',
+    'design',
+    'results',
+    'robustness',
+    'conclusion',
+  ])
   const samplePaperFields = {
     title: '数字化转型、融资约束与企业绿色创新',
     abstract:
@@ -145,9 +159,16 @@ function WritePageContent() {
   const [selection, setSelection] = useState({ start: 0, end: 0 })
   const contentRef = useRef<HTMLTextAreaElement | null>(null)
   const [isMac, setIsMac] = useState(false)
-  const [history, setHistory] = useState<string[]>([])
-  const [historyIndex, setHistoryIndex] = useState(-1)
-  const [versions, setVersions] = useState<
+  const [govContent, setGovContent] = useState('')
+  const [paperContent, setPaperContent] = useState('')
+  const [govHistory, setGovHistory] = useState<string[]>([])
+  const [govHistoryIndex, setGovHistoryIndex] = useState(-1)
+  const [paperHistory, setPaperHistory] = useState<string[]>([])
+  const [paperHistoryIndex, setPaperHistoryIndex] = useState(-1)
+  const [govVersions, setGovVersions] = useState<
+    { id: string; label: string; content: string; time: string }[]
+  >([])
+  const [paperVersions, setPaperVersions] = useState<
     { id: string; label: string; content: string; time: string }[]
   >([])
   const [strictLayout, setStrictLayout] = useState(true)
@@ -229,32 +250,54 @@ function WritePageContent() {
     return missing
   }
 
+  const paperSectionSpecs = [
+    { key: 'title', label: '题目', min: 18, max: 30 },
+    { key: 'abstract', label: '摘要', min: 350, max: 500 },
+    { key: 'keywords', label: '关键词', min: 12, max: 30 },
+    { key: 'introduction', label: '引言', min: 3200, max: 3800 },
+    { key: 'literature', label: '文献综述', min: 3600, max: 4400 },
+    { key: 'variables', label: '变量选择与数据来源', min: 3000, max: 3400 },
+    { key: 'model', label: '理论模型与研究假设', min: 2600, max: 3000 },
+    { key: 'design', label: '研究设计与识别策略', min: 4000, max: 4500 },
+    { key: 'results', label: '实证结果分析', min: 6200, max: 7000 },
+    { key: 'robustness', label: '拓展分析/稳健性检验', min: 3200, max: 3800 },
+    { key: 'conclusion', label: '结论与政策含义', min: 2000, max: 2400 },
+  ]
+
   const buildPaperPrompt = () => {
     const templatePrefix =
       selectedPaperTemplateId === 'custom'
         ? customPaperTemplate
         : paperTemplates.find((item) => item.id === selectedPaperTemplateId)?.promptPrefix ?? ''
 
+    const selectedSpecs = paperSectionSpecs.filter((item) => paperSections.includes(item.key))
     const sections = [
       ['题目', paperFields.title],
       ['摘要', paperFields.abstract],
       ['关键词', paperFields.keywords],
       ['引言', paperFields.introduction],
       ['文献综述', paperFields.literature],
-      ['变量选择', paperFields.variables],
-      ['理论模型', paperFields.model],
-      ['研究设计', paperFields.design],
+      ['变量选择与数据来源', paperFields.variables],
+      ['理论模型与研究假设', paperFields.model],
+      ['研究设计与识别策略', paperFields.design],
       ['实证结果分析', paperFields.results],
-      ['拓展分析', paperFields.robustness],
-      ['结论', paperFields.conclusion],
+      ['拓展分析/稳健性检验', paperFields.robustness],
+      ['结论与政策含义', paperFields.conclusion],
     ]
+      .filter(([label]) =>
+        selectedSpecs.some((spec) => spec.label === label),
+      )
       .filter(([, value]) => value.trim())
       .map(([label, value]) => `${label}：\n${value.trim()}`)
       .join('\n\n')
 
     return [
       '请根据以下材料生成经济研究风格论文草稿，要求结构完整、表述严谨。',
-      '输出结构：题目、摘要、关键词、引言、文献综述、变量选择、理论模型、研究设计、实证结果分析、拓展分析、结论。',
+      `输出结构（仅限选定部分）：${selectedSpecs.map((item) => item.label).join('、')}`,
+      `字数要求：${selectedSpecs
+        .map((item) => `${item.label}${item.min}-${item.max}字`)
+        .join('；')}。总字数目标约30000字。`,
+      paperDraft ? `原始草稿材料：\n${paperDraft.trim()}` : '',
       templatePrefix,
       sections,
       paperExtraPrompt,
@@ -267,6 +310,43 @@ function WritePageContent() {
   const buildPreflightItems = (value: string) => {
     if (writingMode === 'paper') {
       const items: { id: string; label: string; position: number }[] = []
+      const normalized = value.replace(/\r\n/g, '\n')
+      const headerPositions: Record<string, number> = {}
+      paperSectionSpecs.forEach((spec) => {
+        const index = normalized.indexOf(`${spec.label}\n`)
+        if (index >= 0) {
+          headerPositions[spec.key] = index
+        }
+      })
+      paperSectionSpecs
+        .filter((spec) => paperSections.includes(spec.key))
+        .forEach((spec) => {
+          if (!(spec.key in headerPositions)) {
+            items.push({
+              id: `missing-${spec.key}`,
+              label: `缺失：${spec.label}`,
+              position: 0,
+            })
+          }
+        })
+      const orderedSpecs = paperSectionSpecs.filter((spec) =>
+        paperSections.includes(spec.key),
+      )
+      orderedSpecs.forEach((spec, idx) => {
+        if (!(spec.key in headerPositions)) return
+        const start = headerPositions[spec.key]
+        const nextSpec = orderedSpecs.slice(idx + 1).find((s) => s.key in headerPositions)
+        const end = nextSpec ? headerPositions[nextSpec.key] : normalized.length
+        const body = normalized.slice(start, end).replace(`${spec.label}\n`, '')
+        const count = body.replace(/\s/g, '').length
+        if (count < spec.min || count > spec.max) {
+          items.push({
+            id: `len-${spec.key}`,
+            label: `${spec.label}字数不符合（${count}字，要求${spec.min}-${spec.max}字）`,
+            position: start,
+          })
+        }
+      })
       const placeholderRegex = /〔[^〕]*占位[^〕]*〕/g
       let match: RegExpExecArray | null
       while ((match = placeholderRegex.exec(value)) !== null) {
@@ -346,35 +426,66 @@ function WritePageContent() {
   }
 
   const pushHistory = (next: string) => {
-    setHistory((prev) => {
-      const trimmed = next.trim()
-      if (!trimmed) return prev
-      const current = prev[historyIndex] ?? ''
+    const trimmed = next.trim()
+    if (!trimmed) return
+    const now = Date.now()
+    const shouldAppend = now - lastHistoryTimeRef.current > 800
+    lastHistoryTimeRef.current = now
+
+    if (writingMode === 'gov') {
+      setGovHistory((prev) => {
+        const current = prev[govHistoryIndex] ?? ''
+        if (current === next) return prev
+        const base = prev.slice(0, govHistoryIndex + 1)
+        const updated = shouldAppend ? [...base, next] : [...base.slice(0, -1), next]
+        setGovHistoryIndex(updated.length - 1)
+        return updated
+      })
+      return
+    }
+
+    setPaperHistory((prev) => {
+      const current = prev[paperHistoryIndex] ?? ''
       if (current === next) return prev
-      const now = Date.now()
-      const shouldAppend = now - lastHistoryTimeRef.current > 800
-      lastHistoryTimeRef.current = now
-      const base = prev.slice(0, historyIndex + 1)
+      const base = prev.slice(0, paperHistoryIndex + 1)
       const updated = shouldAppend ? [...base, next] : [...base.slice(0, -1), next]
-      setHistoryIndex(updated.length - 1)
+      setPaperHistoryIndex(updated.length - 1)
       return updated
     })
   }
 
   const handleUndo = () => {
-    setHistoryIndex((index) => {
+    if (writingMode === 'gov') {
+      setGovHistoryIndex((index) => {
+        if (index <= 0) return index
+        const nextIndex = index - 1
+        setContent(govHistory[nextIndex])
+        return nextIndex
+      })
+      return
+    }
+    setPaperHistoryIndex((index) => {
       if (index <= 0) return index
       const nextIndex = index - 1
-      setContent(history[nextIndex])
+      setContent(paperHistory[nextIndex])
       return nextIndex
     })
   }
 
   const handleRedo = () => {
-    setHistoryIndex((index) => {
-      if (index >= history.length - 1) return index
+    if (writingMode === 'gov') {
+      setGovHistoryIndex((index) => {
+        if (index >= govHistory.length - 1) return index
+        const nextIndex = index + 1
+        setContent(govHistory[nextIndex])
+        return nextIndex
+      })
+      return
+    }
+    setPaperHistoryIndex((index) => {
+      if (index >= paperHistory.length - 1) return index
       const nextIndex = index + 1
-      setContent(history[nextIndex])
+      setContent(paperHistory[nextIndex])
       return nextIndex
     })
   }
@@ -382,9 +493,21 @@ function WritePageContent() {
   const pushVersion = (nextContent: string) => {
     const now = new Date()
     const time = now.toLocaleString('zh-CN', { hour12: false })
-    setVersions((prev) => [
+    if (writingMode === 'gov') {
+      setGovVersions((prev) => [
+        {
+          id: `gov-${now.getTime()}-${prev.length + 1}`,
+          label: `版本 ${prev.length + 1}`,
+          content: nextContent,
+          time,
+        },
+        ...prev,
+      ])
+      return
+    }
+    setPaperVersions((prev) => [
       {
-        id: `${now.getTime()}-${prev.length + 1}`,
+        id: `paper-${now.getTime()}-${prev.length + 1}`,
         label: `版本 ${prev.length + 1}`,
         content: nextContent,
         time,
@@ -908,11 +1031,16 @@ function WritePageContent() {
   }, [customPaperTemplate])
 
   useEffect(() => {
-    if (content.trim() && history.length === 0) {
-      setHistory([content])
-      setHistoryIndex(0)
+    if (!content.trim()) return
+    if (writingMode === 'gov' && govHistory.length === 0) {
+      setGovHistory([content])
+      setGovHistoryIndex(0)
     }
-  }, [content, history.length])
+    if (writingMode === 'paper' && paperHistory.length === 0) {
+      setPaperHistory([content])
+      setPaperHistoryIndex(0)
+    }
+  }, [content, writingMode, govHistory.length, paperHistory.length])
 
   useEffect(() => {
     if (content.trim()) {
@@ -921,6 +1049,23 @@ function WritePageContent() {
       setMissingElements([])
     }
   }, [content])
+
+  useEffect(() => {
+    if (writingMode === 'gov') {
+      setContent(govContent)
+    } else {
+      setContent(paperContent)
+    }
+    setSelection({ start: 0, end: 0 })
+  }, [writingMode, govContent, paperContent])
+
+  useEffect(() => {
+    if (writingMode === 'gov') {
+      setGovContent(content)
+    } else {
+      setPaperContent(content)
+    }
+  }, [content, writingMode])
 
   const generateDocument = async () => {
     if (writingMode === 'gov' && !selectedType) return
@@ -1157,6 +1302,19 @@ function WritePageContent() {
                 {writingMode === 'paper' && (
                   <>
                     <div>
+                      <label htmlFor="paperDraft" className="block text-sm font-medium text-gray-700">
+                        草稿材料（可选）
+                      </label>
+                      <textarea
+                        id="paperDraft"
+                        rows={4}
+                        className="mt-1 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        placeholder="粘贴你的原始草稿、变量描述、模型思路等材料"
+                        value={paperDraft}
+                        onChange={(e) => setPaperDraft(e.target.value)}
+                      />
+                    </div>
+                    <div>
                       <label htmlFor="paperTitle" className="block text-sm font-medium text-gray-700">
                         论文题目
                       </label>
@@ -1239,6 +1397,33 @@ function WritePageContent() {
                           onChange={(e) => setCustomPaperTemplate(e.target.value)}
                         />
                       )}
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-gray-700">输出部分选择</div>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {paperSectionSpecs.map((spec) => (
+                          <label
+                            key={spec.key}
+                            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={paperSections.includes(spec.key)}
+                              onChange={(e) => {
+                                setPaperSections((prev) =>
+                                  e.target.checked
+                                    ? [...prev, spec.key]
+                                    : prev.filter((item) => item !== spec.key),
+                                )
+                              }}
+                            />
+                            {spec.label}
+                          </label>
+                        ))}
+                      </div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        未选择的部分不会生成；字数范围按经济研究期刊风格控制。
+                      </div>
                     </div>
                     <div className="space-y-3">
                       {[
@@ -1382,9 +1567,15 @@ function WritePageContent() {
                     <button
                       type="button"
                       onClick={handleUndo}
-                      disabled={historyIndex <= 0}
+                      disabled={
+                        writingMode === 'gov'
+                          ? govHistoryIndex <= 0
+                          : paperHistoryIndex <= 0
+                      }
                       className={`rounded-md px-3 py-1 text-xs ${
-                        historyIndex <= 0
+                        (writingMode === 'gov'
+                          ? govHistoryIndex <= 0
+                          : paperHistoryIndex <= 0)
                           ? 'bg-gray-200 text-gray-500'
                           : 'bg-slate-800 text-white hover:bg-slate-900'
                       }`}
@@ -1394,9 +1585,15 @@ function WritePageContent() {
                     <button
                       type="button"
                       onClick={handleRedo}
-                      disabled={historyIndex >= history.length - 1}
+                      disabled={
+                        writingMode === 'gov'
+                          ? govHistoryIndex >= govHistory.length - 1
+                          : paperHistoryIndex >= paperHistory.length - 1
+                      }
                       className={`rounded-md px-3 py-1 text-xs ${
-                        historyIndex >= history.length - 1
+                        (writingMode === 'gov'
+                          ? govHistoryIndex >= govHistory.length - 1
+                          : paperHistoryIndex >= paperHistory.length - 1)
                           ? 'bg-gray-200 text-gray-500'
                           : 'bg-slate-800 text-white hover:bg-slate-900'
                       }`}
@@ -1417,11 +1614,13 @@ function WritePageContent() {
                   </button>
                 </div>
               </div>
-              {versions.length > 0 && (
+              {(writingMode === 'gov' ? govVersions.length > 0 : paperVersions.length > 0) && (
                 <div className="rounded-xl border border-slate-100 bg-white/80 p-3 text-xs text-slate-600">
                   <div className="mb-2 font-medium text-slate-700">版本历史</div>
                   <div className="flex flex-col gap-2">
-                    {versions.slice(0, 6).map((version) => (
+                    {(writingMode === 'gov' ? govVersions : paperVersions)
+                      .slice(0, 6)
+                      .map((version) => (
                       <div
                         key={version.id}
                         className="flex flex-wrap items-center justify-between gap-2"
