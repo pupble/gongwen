@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import pdfParse from 'pdf-parse'
+import { PDFParse } from 'pdf-parse'
 
 export const runtime = 'nodejs'
 
@@ -33,7 +33,8 @@ export async function POST(request: Request) {
     }
 
     const arrayBuffer = await file.arrayBuffer()
-    const data = await pdfParse(Buffer.from(arrayBuffer))
+    const parser = new PDFParse({ data: Buffer.from(arrayBuffer) })
+    const data = await parser.getText()
     const rawText = String(data.text || '').replace(/\s+/g, ' ').trim()
     const truncated = rawText.slice(0, 12000)
 
