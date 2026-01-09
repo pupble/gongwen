@@ -1024,13 +1024,9 @@ function WritePageContent() {
   }, [content])
 
   useEffect(() => {
-    if (writingMode === 'gov') {
-      setContent(govContent)
-    } else {
-      setContent(paperContent)
-    }
+    setContent(writingMode === 'gov' ? govContent : paperContent)
     setSelection({ start: 0, end: 0 })
-  }, [writingMode, govContent, paperContent])
+  }, [writingMode])
 
   useEffect(() => {
     if (writingMode === 'gov') {
