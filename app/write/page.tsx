@@ -172,6 +172,11 @@ function WritePageContent() {
     { id: string; label: string; position: number }[]
   >([])
   const [pendingExport, setPendingExport] = useState<'docx' | 'md' | null>(null)
+  const [paperProgress, setPaperProgress] = useState<{
+    total: number
+    index: number
+    label: string
+  } | null>(null)
   const lastHistoryTimeRef = useRef(0)
 
   const normalizeContent = (value: string) => {
@@ -258,19 +263,17 @@ function WritePageContent() {
     { key: 'conclusion', label: '结论与政策含义', min: 2000, max: 2400 },
   ]
 
-  const buildPaperPrompt = () => {
-    const templatePrefix =
-      selectedPaperTemplateId === 'custom'
-        ? customPaperTemplate
-        : paperTemplates.find((item) => item.id === selectedPaperTemplateId)?.promptPrefix ?? ''
+  const getPaperTemplatePrefix = () =>
+    selectedPaperTemplateId === 'custom'
+      ? customPaperTemplate
+      : paperTemplates.find((item) => item.id === selectedPaperTemplateId)?.promptPrefix ?? ''
 
-    const selectedSpecs = paperSectionSpecs.filter((item) => paperSections.includes(item.key))
+  const buildPaperSectionPrompt = (spec: typeof paperSectionSpecs[number]) => {
+    const templatePrefix = getPaperTemplatePrefix()
     return [
-      '请根据以下材料生成经济研究风格论文草稿，要求结构完整、表述严谨。',
-      `输出结构（仅限选定部分）：${selectedSpecs.map((item) => item.label).join('、')}`,
-      `字数要求：${selectedSpecs
-        .map((item) => `${item.label}${item.min}-${item.max}字`)
-        .join('；')}。总字数目标约30000字。`,
+      `仅生成论文的“${spec.label}”部分，必须符合经济研究期刊中文写作风格。`,
+      `字数要求：${spec.min}-${spec.max}字。若材料不足，用〔占位〕补齐并扩写至要求字数。`,
+      '不输出其他部分，不解释写作过程，不输出标题层级之外的内容。',
       paperDraft ? `原始草稿材料：\n${paperDraft.trim()}` : '',
       templatePrefix,
       paperExtraPrompt,
@@ -278,6 +281,38 @@ function WritePageContent() {
       .map((item) => item.trim())
       .filter(Boolean)
       .join('\n\n')
+  }
+
+  const buildPaperExpandPrompt = (
+    spec: typeof paperSectionSpecs[number],
+    current: string,
+  ) =>
+    [
+      `在不改变学术口径的前提下扩写“${spec.label}”至${spec.min}-${spec.max}字，补足论证、机制或细节。`,
+      '如材料不足，用〔占位〕补齐，不要新增虚构数据或政策条款。',
+      '仅输出扩写后的完整段落，不要解释写作过程。',
+      current.trim(),
+    ]
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .join('\n\n')
+
+  const buildPaperHeader = (spec: typeof paperSectionSpecs[number], order: number) => {
+    if (spec.key === 'title') return ''
+    if (spec.key === 'abstract') return '摘要'
+    if (spec.key === 'keywords') return '关键词'
+    const orderMap = [
+      '一、',
+      '二、',
+      '三、',
+      '四、',
+      '五、',
+      '六、',
+      '七、',
+      '八、',
+      '九、',
+    ]
+    return `${orderMap[order] ?? ''}${spec.label}`
   }
 
   const buildPreflightItems = (value: string) => {
@@ -1251,25 +1286,103 @@ function WritePageContent() {
         }
       }
       setTemplateWarning(null)
+
+      if (writingMode === 'paper') {
+        const selectedSpecs = paperSectionSpecs.filter((item) => paperSections.includes(item.key))
+        const bodySpecs = selectedSpecs.filter(
+          (item) => !['title', 'abstract', 'keywords'].includes(item.key),
+        )
+        const sectionResults: string[] = []
+        let bodyIndex = 0
+
+        for (const [idx, spec] of selectedSpecs.entries()) {
+          setPaperProgress({
+            total: selectedSpecs.length,
+            index: idx + 1,
+            label: spec.label,
+          })
+          const response = await fetch('/api/generate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              type: 'paper',
+              prompt: buildPaperSectionPrompt(spec),
+            }),
+          })
+
+          const data = await response.json()
+          if (data.error) {
+            throw new Error(data.error)
+          }
+
+          let sectionText = normalizeContent(String(data.content ?? '').trim())
+          const charCount = sectionText.replace(/\s/g, '').length
+          if (charCount < spec.min) {
+            const retryResponse = await fetch('/api/generate', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                type: 'paper',
+                prompt: buildPaperExpandPrompt(spec, sectionText),
+              }),
+            })
+            const retryData = await retryResponse.json()
+            if (!retryData.error) {
+              sectionText = normalizeContent(String(retryData.content ?? '').trim())
+            }
+          }
+          if (!sectionText) continue
+
+          if (spec.key === 'title') {
+            sectionResults.push(sectionText)
+            continue
+          }
+
+          if (spec.key === 'abstract') {
+            sectionResults.push(`摘要\n${sectionText}`)
+            continue
+          }
+
+          if (spec.key === 'keywords') {
+            sectionResults.push(`关键词\n${sectionText}`)
+            continue
+          }
+
+          const header = buildPaperHeader(spec, bodyIndex)
+          if (bodySpecs.some((item) => item.key === spec.key)) {
+            sectionResults.push(`${header}\n${sectionText}`)
+            bodyIndex += 1
+          }
+        }
+
+        const combined = sectionResults.join('\n\n')
+        setContent(combined)
+        pushHistory(combined)
+        pushVersion(combined)
+        evaluateMissingElements(combined)
+        setPaperProgress(null)
+        return
+      }
+
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          type: writingMode === 'paper' ? 'paper' : selectedType,
-          prompt:
-            writingMode === 'paper'
-              ? buildPaperPrompt()
-              : [
-                  selectedTemplateId === 'custom' ? customTemplate : '',
-                  templateOptions.find((item) => item.id === selectedTemplateId)?.promptPrefix ??
-                    '',
-                  govPrompt,
-                ]
-                  .map((item) => item.trim())
-                  .filter(Boolean)
-                  .join('\n'),
+          type: selectedType,
+          prompt: [
+            selectedTemplateId === 'custom' ? customTemplate : '',
+            templateOptions.find((item) => item.id === selectedTemplateId)?.promptPrefix ?? '',
+            govPrompt,
+          ]
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .join('\n'),
         }),
       })
 
@@ -1289,6 +1402,7 @@ function WritePageContent() {
       setContent('生成文档时发生错误，请稍后重试。')
     } finally {
       setIsGenerating(false)
+      setPaperProgress(null)
     }
   }
 
@@ -1576,6 +1690,11 @@ function WritePageContent() {
                 >
                   {isGenerating ? '生成中...' : '生成文档'}
                 </button>
+                {paperProgress && writingMode === 'paper' && (
+                  <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                    正在生成：{paperProgress.label}（{paperProgress.index}/{paperProgress.total}）
+                  </div>
+                )}
                 <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-600">
                   左侧填写提示词，右侧实时编辑输出内容。导出前会进行要素预检。
                 </div>

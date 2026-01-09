@@ -29,7 +29,7 @@ export async function POST(request: Request) {
         { role: 'user', content: safePrompt || '请生成一篇公文' },
       ],
       temperature: 0.7,
-      max_tokens: 1400,
+      max_tokens: safeType === 'paper' ? 5200 : 1400,
     })
 
     return NextResponse.json({
