@@ -177,6 +177,17 @@ function WritePageContent() {
     index: number
     label: string
   } | null>(null)
+  const [paperSectionOutputs, setPaperSectionOutputs] = useState<Record<string, string>>({})
+  const [paperResumeIndex, setPaperResumeIndex] = useState<number | null>(null)
+  const [paperResumeKeys, setPaperResumeKeys] = useState<string[] | null>(null)
+  const [paperExportKey, setPaperExportKey] = useState<string>('full')
+  const [paperSpecOverrides, setPaperSpecOverrides] = useState<
+    { key: string; label: string; min: number; max: number }[]
+  >([])
+  const [pdfFile, setPdfFile] = useState<File | null>(null)
+  const [pdfIdea, setPdfIdea] = useState('')
+  const [pdfError, setPdfError] = useState<string | null>(null)
+  const [isPdfGenerating, setIsPdfGenerating] = useState(false)
   const lastHistoryTimeRef = useRef(0)
 
   const normalizeContent = (value: string) => {
@@ -249,7 +260,7 @@ function WritePageContent() {
     return missing
   }
 
-  const paperSectionSpecs = [
+  const defaultPaperSectionSpecs = [
     { key: 'title', label: '题目', min: 18, max: 30 },
     { key: 'abstract', label: '摘要', min: 350, max: 500 },
     { key: 'keywords', label: '关键词', min: 12, max: 30 },
@@ -262,6 +273,9 @@ function WritePageContent() {
     { key: 'robustness', label: '拓展分析/稳健性检验', min: 3200, max: 3800 },
     { key: 'conclusion', label: '结论与政策含义', min: 2000, max: 2400 },
   ]
+
+  const paperSectionSpecs =
+    paperSpecOverrides.length > 0 ? paperSpecOverrides : defaultPaperSectionSpecs
 
   const getPaperTemplatePrefix = () =>
     selectedPaperTemplateId === 'custom'
@@ -930,7 +944,7 @@ function WritePageContent() {
     })
   }
 
-  const buildPaperDocx = (text: string) => {
+  const buildPaperDocx = (text: string, options?: { treatFirstLineAsTitle?: boolean }) => {
     const lines = normalizeContent(text).split(/\r?\n/)
     const paragraphs: Paragraph[] = []
     const bodySpacing = {
@@ -941,6 +955,7 @@ function WritePageContent() {
     }
 
     const titleLineIndex = lines.findIndex((line) => line.trim())
+    const treatFirstLineAsTitle = options?.treatFirstLineAsTitle ?? true
     let consumedTitle = false
 
     const pushParagraph = (
@@ -983,7 +998,7 @@ function WritePageContent() {
         return
       }
 
-      if (!consumedTitle) {
+      if (!consumedTitle && treatFirstLineAsTitle) {
         if (/^题目[:：]/.test(line)) {
           const title = line.replace(/^题目[:：]/, '').trim()
           if (title) {
@@ -1162,6 +1177,26 @@ function WritePageContent() {
     URL.revokeObjectURL(url)
   }
 
+  const doExportPaperSectionDocx = async (key: string) => {
+    if (writingMode !== 'paper') return
+    if (key === 'full') {
+      await doExportDocx()
+      return
+    }
+    const sectionText = paperSectionOutputs[key]
+    if (!sectionText) return
+    const treatTitle = key === 'title'
+    const doc = buildPaperDocx(sectionText, { treatFirstLineAsTitle: treatTitle })
+    const blob = await Packer.toBlob(doc)
+    const url = URL.createObjectURL(blob)
+    const filename = `论文-${key}.docx`
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   const downloadMarkdown = () => {
     if (!content.trim()) return
     const issues = buildPreflightItems(content)
@@ -1229,6 +1264,26 @@ function WritePageContent() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      const stored = window.localStorage.getItem('paperSectionSpecs')
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored)
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setPaperSpecOverrides(parsed)
+          } else {
+            setPaperSpecOverrides(defaultPaperSectionSpecs)
+          }
+        } catch {
+          setPaperSpecOverrides(defaultPaperSectionSpecs)
+        }
+      } else {
+        setPaperSpecOverrides(defaultPaperSectionSpecs)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
       window.localStorage.setItem('customTemplate', customTemplate)
     }
   }, [customTemplate])
@@ -1238,6 +1293,12 @@ function WritePageContent() {
       window.localStorage.setItem('customPaperTemplate', customPaperTemplate)
     }
   }, [customPaperTemplate])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && paperSpecOverrides.length > 0) {
+      window.localStorage.setItem('paperSectionSpecs', JSON.stringify(paperSpecOverrides))
+    }
+  }, [paperSpecOverrides])
 
   useEffect(() => {
     if (!content.trim()) return
@@ -1293,7 +1354,10 @@ function WritePageContent() {
           (item) => !['title', 'abstract', 'keywords'].includes(item.key),
         )
         const sectionResults: string[] = []
+        const sectionMap: Record<string, string> = {}
         let bodyIndex = 0
+        setPaperResumeIndex(null)
+        setPaperResumeKeys(null)
 
         for (const [idx, spec] of selectedSpecs.entries()) {
           setPaperProgress({
@@ -1301,66 +1365,89 @@ function WritePageContent() {
             index: idx + 1,
             label: spec.label,
           })
-          const response = await fetch('/api/generate', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              type: 'paper',
-              prompt: buildPaperSectionPrompt(spec),
-            }),
-          })
+          let sectionText = ''
+          let attempt = 0
+          let success = false
 
-          const data = await response.json()
-          if (data.error) {
-            throw new Error(data.error)
-          }
-
-          let sectionText = normalizeContent(String(data.content ?? '').trim())
-          const charCount = sectionText.replace(/\s/g, '').length
-          if (charCount < spec.min) {
-            const retryResponse = await fetch('/api/generate', {
+          while (attempt < 2 && !success) {
+            attempt += 1
+            const response = await fetch('/api/generate', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
                 type: 'paper',
-                prompt: buildPaperExpandPrompt(spec, sectionText),
+                prompt: buildPaperSectionPrompt(spec),
               }),
             })
-            const retryData = await retryResponse.json()
-            if (!retryData.error) {
-              sectionText = normalizeContent(String(retryData.content ?? '').trim())
+
+            const data = await response.json()
+            if (data.error) {
+              if (attempt >= 2) {
+                setPaperResumeIndex(idx)
+                setPaperResumeKeys(selectedSpecs.map((item) => item.key))
+                throw new Error(data.error)
+              }
+              continue
             }
+
+            sectionText = normalizeContent(String(data.content ?? '').trim())
+            const charCount = sectionText.replace(/\s/g, '').length
+            if (charCount < spec.min) {
+              const retryResponse = await fetch('/api/generate', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  type: 'paper',
+                  prompt: buildPaperExpandPrompt(spec, sectionText),
+                }),
+              })
+              const retryData = await retryResponse.json()
+              if (!retryData.error) {
+                sectionText = normalizeContent(String(retryData.content ?? '').trim())
+              }
+            }
+            success = Boolean(sectionText)
           }
+
           if (!sectionText) continue
 
           if (spec.key === 'title') {
             sectionResults.push(sectionText)
+            sectionMap[spec.key] = sectionText
             continue
           }
 
           if (spec.key === 'abstract') {
-            sectionResults.push(`摘要\n${sectionText}`)
+            const block = `摘要\n${sectionText}`
+            sectionResults.push(block)
+            sectionMap[spec.key] = block
             continue
           }
 
           if (spec.key === 'keywords') {
-            sectionResults.push(`关键词\n${sectionText}`)
+            const block = `关键词\n${sectionText}`
+            sectionResults.push(block)
+            sectionMap[spec.key] = block
             continue
           }
 
           const header = buildPaperHeader(spec, bodyIndex)
           if (bodySpecs.some((item) => item.key === spec.key)) {
-            sectionResults.push(`${header}\n${sectionText}`)
+            const block = `${header}\n${sectionText}`
+            sectionResults.push(block)
+            sectionMap[spec.key] = block
             bodyIndex += 1
           }
         }
 
         const combined = sectionResults.join('\n\n')
         setContent(combined)
+        setPaperSectionOutputs(sectionMap)
+        setPaperExportKey('full')
         pushHistory(combined)
         pushVersion(combined)
         evaluateMissingElements(combined)
@@ -1468,6 +1555,133 @@ function WritePageContent() {
     }
     setShowPreflight(false)
     setPendingExport(null)
+  }
+
+  const generateIdeaFromPdf = async () => {
+    if (!pdfFile) return
+    setIsPdfGenerating(true)
+    setPdfError(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', pdfFile)
+      const response = await fetch('/api/paper-idea', {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await response.json()
+      if (data.error) {
+        throw new Error(data.error)
+      }
+      const idea = normalizeContent(String(data.content ?? '').trim())
+      setPdfIdea(idea)
+      setContent(idea)
+      pushHistory(idea)
+      pushVersion(idea)
+      evaluateMissingElements(idea)
+    } catch (error) {
+      setPdfError(error instanceof Error ? error.message : '生成研究思路失败')
+    } finally {
+      setIsPdfGenerating(false)
+    }
+  }
+
+  const resumePaperGeneration = async () => {
+    if (writingMode !== 'paper' || paperResumeIndex === null || !paperResumeKeys) return
+    const startIndex = paperResumeIndex
+    const selectedSpecs = paperSectionSpecs.filter((item) => paperResumeKeys.includes(item.key))
+    const remaining = selectedSpecs.slice(startIndex)
+    const bodySpecs = selectedSpecs.filter(
+      (item) => !['title', 'abstract', 'keywords'].includes(item.key),
+    )
+    const sectionResults: string[] = content ? content.split(/\n{2,}/) : []
+    const sectionMap = { ...paperSectionOutputs }
+    let bodyIndex = 0
+
+    setIsGenerating(true)
+    try {
+      for (const [offset, spec] of remaining.entries()) {
+        setPaperProgress({
+          total: remaining.length,
+          index: offset + 1,
+          label: spec.label,
+        })
+        let sectionText = ''
+        const response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: 'paper',
+            prompt: buildPaperSectionPrompt(spec),
+          }),
+        })
+        const data = await response.json()
+        if (data.error) {
+          throw new Error(data.error)
+        }
+        sectionText = normalizeContent(String(data.content ?? '').trim())
+        const charCount = sectionText.replace(/\s/g, '').length
+        if (charCount < spec.min) {
+          const retryResponse = await fetch('/api/generate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              type: 'paper',
+              prompt: buildPaperExpandPrompt(spec, sectionText),
+            }),
+          })
+          const retryData = await retryResponse.json()
+          if (!retryData.error) {
+            sectionText = normalizeContent(String(retryData.content ?? '').trim())
+          }
+        }
+        if (!sectionText) continue
+
+        if (spec.key === 'title') {
+          sectionResults.unshift(sectionText)
+          sectionMap[spec.key] = sectionText
+          continue
+        }
+        if (spec.key === 'abstract') {
+          const block = `摘要\n${sectionText}`
+          sectionResults.push(block)
+          sectionMap[spec.key] = block
+          continue
+        }
+        if (spec.key === 'keywords') {
+          const block = `关键词\n${sectionText}`
+          sectionResults.push(block)
+          sectionMap[spec.key] = block
+          continue
+        }
+
+        const header = buildPaperHeader(spec, bodyIndex)
+        if (bodySpecs.some((item) => item.key === spec.key)) {
+          const block = `${header}\n${sectionText}`
+          sectionResults.push(block)
+          sectionMap[spec.key] = block
+          bodyIndex += 1
+        }
+      }
+
+      const combined = sectionResults.filter(Boolean).join('\n\n')
+      setContent(combined)
+      setPaperSectionOutputs(sectionMap)
+      setPaperExportKey('full')
+      pushHistory(combined)
+      pushVersion(combined)
+      evaluateMissingElements(combined)
+      setPaperResumeIndex(null)
+      setPaperResumeKeys(null)
+    } catch (error) {
+      console.error('Error resuming paper generation:', error)
+    } finally {
+      setIsGenerating(false)
+      setPaperProgress(null)
+    }
   }
 
   return (
@@ -1585,6 +1799,37 @@ function WritePageContent() {
                 )}
                 {writingMode === 'paper' && (
                   <>
+                    <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
+                      <div className="text-sm font-medium text-gray-700">PDF 研究思路</div>
+                      <div className="mt-2 flex flex-col gap-2">
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
+                          className="block w-full text-xs text-slate-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={generateIdeaFromPdf}
+                          disabled={!pdfFile || isPdfGenerating}
+                          className={`rounded-md px-3 py-2 text-xs text-white ${
+                            !pdfFile || isPdfGenerating
+                              ? 'bg-gray-400 cursor-not-allowed'
+                              : 'bg-emerald-600 hover:bg-emerald-700'
+                          }`}
+                        >
+                          {isPdfGenerating ? '生成中...' : '生成2000字研究思路'}
+                        </button>
+                        {pdfError && (
+                          <div className="text-xs text-rose-600">{pdfError}</div>
+                        )}
+                        {pdfIdea && (
+                          <div className="rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs text-slate-600">
+                            已生成研究思路并写入右侧文档内容。
+                          </div>
+                        )}
+                      </div>
+                    </div>
                     <div>
                       <label htmlFor="paperDraft" className="block text-sm font-medium text-gray-700">
                         草稿材料（可选）
@@ -1665,6 +1910,54 @@ function WritePageContent() {
                       </div>
                     </div>
                     <div>
+                      <div className="text-sm font-medium text-gray-700">字数范围（可调）</div>
+                      <div className="mt-2 grid gap-2">
+                        {paperSectionSpecs.map((spec) => (
+                          <div
+                            key={`limit-${spec.key}`}
+                            className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600"
+                          >
+                            <span className="w-32 text-slate-700">{spec.label}</span>
+                            <input
+                              type="number"
+                              min={1}
+                              className="w-24 rounded border border-slate-200 px-2 py-1"
+                              value={spec.min}
+                              onChange={(e) =>
+                                setPaperSpecOverrides((prev) =>
+                                  prev.map((item) =>
+                                    item.key === spec.key
+                                      ? { ...item, min: Math.max(1, Number(e.target.value || 0)) }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                            <span>—</span>
+                            <input
+                              type="number"
+                              min={1}
+                              className="w-24 rounded border border-slate-200 px-2 py-1"
+                              value={spec.max}
+                              onChange={(e) =>
+                                setPaperSpecOverrides((prev) =>
+                                  prev.map((item) =>
+                                    item.key === spec.key
+                                      ? { ...item, max: Math.max(1, Number(e.target.value || 0)) }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                            <span className="text-slate-400">字</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        调整后会保存到本地，下次打开自动恢复。
+                      </div>
+                    </div>
+                    <div>
                       <label htmlFor="paperExtraPrompt" className="block text-sm font-medium text-gray-700">
                         额外写作要求
                       </label>
@@ -1695,6 +1988,15 @@ function WritePageContent() {
                     正在生成：{paperProgress.label}（{paperProgress.index}/{paperProgress.total}）
                   </div>
                 )}
+                {paperResumeIndex !== null && writingMode === 'paper' && (
+                  <button
+                    type="button"
+                    onClick={resumePaperGeneration}
+                    className="w-full rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 hover:border-amber-300"
+                  >
+                    继续生成未完成章节
+                  </button>
+                )}
                 <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-600">
                   左侧填写提示词，右侧实时编辑输出内容。导出前会进行要素预检。
                 </div>
@@ -1703,6 +2005,34 @@ function WritePageContent() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h2 className="text-lg font-medium text-gray-900">文档内容</h2>
                   <div className="flex flex-wrap gap-3">
+                    {writingMode === 'paper' && (
+                      <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600">
+                        <select
+                          value={paperExportKey}
+                          onChange={(e) => setPaperExportKey(e.target.value)}
+                          className="rounded border border-slate-200 px-2 py-1"
+                        >
+                          <option value="full">合并导出</option>
+                          {paperSections.map((key) => (
+                            <option key={key} value={key}>
+                              单章：{paperSectionSpecs.find((spec) => spec.key === key)?.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => doExportPaperSectionDocx(paperExportKey)}
+                          disabled={!content.trim() || isGenerating}
+                          className={`rounded-md px-3 py-1 ${
+                            !content.trim() || isGenerating
+                              ? 'bg-gray-200 text-gray-500'
+                              : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                          }`}
+                        >
+                          导出论文
+                        </button>
+                      </div>
+                    )}
                     <button
                       onClick={downloadMarkdown}
                       disabled={!content.trim() || isGenerating}
