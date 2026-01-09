@@ -59,6 +59,29 @@ const templateOptions = [
   },
 ]
 
+const paperTemplates = [
+  {
+    id: 'econ-standard',
+    name: '经济研究标准风格',
+    description: '注重因果识别、严谨表述与稳健性检验',
+    promptPrefix:
+      '论文风格：经济研究。要求：学术严谨、逻辑清晰、表述克制，强调识别策略、稳健性与机制分析。',
+  },
+  {
+    id: 'policy-eval',
+    name: '政策评估风格',
+    description: '突出政策背景、识别设计与政策含义',
+    promptPrefix:
+      '论文风格：政策评估。要求：交代政策背景、样本构造、识别策略与政策含义，避免夸大结论。',
+  },
+  {
+    id: 'custom',
+    name: '自定义论文模板',
+    description: '输入你偏好的论文写作要求',
+    promptPrefix: '',
+  },
+]
+
 export default function WritePage() {
   return (
     <Suspense fallback={<div>Loading...</div>}>
@@ -76,6 +99,24 @@ function WritePageContent() {
   const [selectedTemplateId, setSelectedTemplateId] = useState(templateOptions[0].id)
   const [customTemplate, setCustomTemplate] = useState('')
   const [templateWarning, setTemplateWarning] = useState<string | null>(null)
+  const [writingMode, setWritingMode] = useState<'gov' | 'paper'>('gov')
+  const [selectedPaperTemplateId, setSelectedPaperTemplateId] = useState(
+    paperTemplates[0].id,
+  )
+  const [customPaperTemplate, setCustomPaperTemplate] = useState('')
+  const [paperFields, setPaperFields] = useState({
+    title: '',
+    abstract: '',
+    keywords: '',
+    introduction: '',
+    literature: '',
+    variables: '',
+    model: '',
+    design: '',
+    results: '',
+    robustness: '',
+    conclusion: '',
+  })
   const [editPrompt, setEditPrompt] = useState('')
   const [isPolishing, setIsPolishing] = useState(false)
   const [selection, setSelection] = useState({ start: 0, end: 0 })
@@ -165,7 +206,55 @@ function WritePageContent() {
     return missing
   }
 
+  const buildPaperPrompt = () => {
+    const templatePrefix =
+      selectedPaperTemplateId === 'custom'
+        ? customPaperTemplate
+        : paperTemplates.find((item) => item.id === selectedPaperTemplateId)?.promptPrefix ?? ''
+
+    const sections = [
+      ['题目', paperFields.title],
+      ['摘要', paperFields.abstract],
+      ['关键词', paperFields.keywords],
+      ['引言', paperFields.introduction],
+      ['文献综述', paperFields.literature],
+      ['变量选择', paperFields.variables],
+      ['理论模型', paperFields.model],
+      ['研究设计', paperFields.design],
+      ['实证结果分析', paperFields.results],
+      ['拓展分析', paperFields.robustness],
+      ['结论', paperFields.conclusion],
+    ]
+      .filter(([, value]) => value.trim())
+      .map(([label, value]) => `${label}：\n${value.trim()}`)
+      .join('\n\n')
+
+    return [
+      '请根据以下材料生成经济研究风格论文草稿，要求结构完整、表述严谨。',
+      '输出结构：题目、摘要、关键词、引言、文献综述、变量选择、理论模型、研究设计、实证结果分析、拓展分析、结论。',
+      templatePrefix,
+      sections,
+      prompt,
+    ]
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .join('\n\n')
+  }
+
   const buildPreflightItems = (value: string) => {
+    if (writingMode === 'paper') {
+      const items: { id: string; label: string; position: number }[] = []
+      const placeholderRegex = /〔[^〕]*占位[^〕]*〕/g
+      let match: RegExpExecArray | null
+      while ((match = placeholderRegex.exec(value)) !== null) {
+        items.push({
+          id: `placeholder-${match.index}`,
+          label: `占位：${match[0]}`,
+          position: match.index,
+        })
+      }
+      return items
+    }
     const lines = value.split(/\r?\n/)
     const items: { id: string; label: string; position: number }[] = []
     const titleIndex = detectTitleIndex(lines)
@@ -772,9 +861,24 @@ function WritePageContent() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      const stored = window.localStorage.getItem('customPaperTemplate')
+      if (stored) {
+        setCustomPaperTemplate(stored)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
       window.localStorage.setItem('customTemplate', customTemplate)
     }
   }, [customTemplate])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('customPaperTemplate', customPaperTemplate)
+    }
+  }, [customPaperTemplate])
 
   useEffect(() => {
     if (content.trim() && history.length === 0) {
@@ -792,11 +896,11 @@ function WritePageContent() {
   }, [content])
 
   const generateDocument = async () => {
-    if (!selectedType) return
+    if (writingMode === 'gov' && !selectedType) return
 
     setIsGenerating(true)
     try {
-      if (selectedTemplateId === 'custom') {
+      if (writingMode === 'gov' && selectedTemplateId === 'custom') {
         const missing = checkTemplateCompleteness(customTemplate)
         if (missing.length > 0) {
           setTemplateWarning(`模板要求缺少：${missing.join('、')}`)
@@ -811,15 +915,19 @@ function WritePageContent() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          type: selectedType,
-          prompt: [
-            selectedTemplateId === 'custom' ? customTemplate : '',
-            templateOptions.find((item) => item.id === selectedTemplateId)?.promptPrefix ?? '',
-            prompt,
-          ]
-            .map((item) => item.trim())
-            .filter(Boolean)
-            .join('\n'),
+          type: writingMode === 'paper' ? 'paper' : selectedType,
+          prompt:
+            writingMode === 'paper'
+              ? buildPaperPrompt()
+              : [
+                  selectedTemplateId === 'custom' ? customTemplate : '',
+                  templateOptions.find((item) => item.id === selectedTemplateId)?.promptPrefix ??
+                    '',
+                  prompt,
+                ]
+                  .map((item) => item.trim())
+                  .filter(Boolean)
+                  .join('\n'),
         }),
       })
 
@@ -918,77 +1026,231 @@ function WritePageContent() {
         </div>
 
         <div className="mt-8">
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {documentTypes.map((type) => (
-              <div
-                key={type.id}
-                className={`relative rounded-xl border bg-white/80 p-6 shadow-sm cursor-pointer transition-colors ${
-                  selectedType === type.id
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-blue-300'
-                }`}
-                onClick={() => setSelectedType(type.id)}
-              >
-                <h3 className="mt-4 text-lg font-medium text-gray-900">{type.name}</h3>
-                <p className="mt-2 text-sm text-gray-500">{type.description}</p>
-              </div>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-100 bg-white/80 p-4 shadow-sm">
+            <div className="flex gap-2">
+              {[
+                { id: 'gov', label: '公文模式' },
+                { id: 'paper', label: '论文模式' },
+              ].map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => setWritingMode(mode.id as 'gov' | 'paper')}
+                  className={`rounded-full px-4 py-2 text-sm ${
+                    writingMode === mode.id
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <div className="text-sm text-slate-500">
+              {writingMode === 'gov'
+                ? '适用于学校公文与通知类文稿'
+                : '适用于经济研究风格论文写作'}
+            </div>
           </div>
         </div>
+
+        {writingMode === 'gov' && (
+          <div className="mt-6">
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {documentTypes.map((type) => (
+                <div
+                  key={type.id}
+                  className={`relative rounded-xl border bg-white/80 p-6 shadow-sm cursor-pointer transition-colors ${
+                    selectedType === type.id
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-300'
+                  }`}
+                  onClick={() => setSelectedType(type.id)}
+                >
+                  <h3 className="mt-4 text-lg font-medium text-gray-900">{type.name}</h3>
+                  <p className="mt-2 text-sm text-gray-500">{type.description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mt-8">
           <div className="bg-white/90 shadow-lg rounded-2xl p-6 border border-slate-100">
             <div className="grid gap-6 lg:grid-cols-[1fr_1.4fr]">
               <div className="space-y-4">
-                <div>
-                  <label htmlFor="prompt" className="block text-sm font-medium text-gray-700">
-                    写作提示（可选）
-                  </label>
-                  <textarea
-                    id="prompt"
-                    rows={8}
-                    className="mt-1 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                    placeholder="请输入写作提示，例如：关于召开年度总结会议的通知"
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-gray-700">模板与规范</div>
-                  <select
-                    value={selectedTemplateId}
-                    onChange={(e) => setSelectedTemplateId(e.target.value)}
-                    className="mt-2 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                  >
-                    {templateOptions.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="mt-2 text-xs text-slate-500">
-                    {templateOptions.find((item) => item.id === selectedTemplateId)?.description}
-                  </div>
-                  {selectedTemplateId === 'custom' && (
-                    <textarea
-                      rows={5}
-                      className="mt-3 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                      placeholder="输入学院/部门专用模板要求，例如：固定主送、固定落款、常用条款结构等"
-                      value={customTemplate}
-                      onChange={(e) => setCustomTemplate(e.target.value)}
-                    />
-                  )}
-                </div>
-                {templateWarning && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    {templateWarning}
-                  </div>
+                {writingMode === 'gov' && (
+                  <>
+                    <div>
+                      <label htmlFor="prompt" className="block text-sm font-medium text-gray-700">
+                        写作提示（可选）
+                      </label>
+                      <textarea
+                        id="prompt"
+                        rows={6}
+                        className="mt-1 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        placeholder="请输入写作提示，例如：关于召开年度总结会议的通知"
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-gray-700">模板与规范</div>
+                      <select
+                        value={selectedTemplateId}
+                        onChange={(e) => setSelectedTemplateId(e.target.value)}
+                        className="mt-2 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      >
+                        {templateOptions.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="mt-2 text-xs text-slate-500">
+                        {templateOptions.find((item) => item.id === selectedTemplateId)?.description}
+                      </div>
+                      {selectedTemplateId === 'custom' && (
+                        <textarea
+                          rows={5}
+                          className="mt-3 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                          placeholder="输入学院/部门专用模板要求，例如：固定主送、固定落款、常用条款结构等"
+                          value={customTemplate}
+                          onChange={(e) => setCustomTemplate(e.target.value)}
+                        />
+                      )}
+                    </div>
+                    {templateWarning && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        {templateWarning}
+                      </div>
+                    )}
+                  </>
+                )}
+                {writingMode === 'paper' && (
+                  <>
+                    <div>
+                      <label htmlFor="paperTitle" className="block text-sm font-medium text-gray-700">
+                        论文题目
+                      </label>
+                      <input
+                        id="paperTitle"
+                        className="mt-1 block w-full rounded-lg border-gray-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        placeholder="请输入论文题目或研究主题"
+                        value={paperFields.title}
+                        onChange={(e) =>
+                          setPaperFields((prev) => ({ ...prev, title: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="grid gap-3">
+                      <div>
+                        <label htmlFor="paperAbstract" className="block text-sm font-medium text-gray-700">
+                          摘要材料
+                        </label>
+                        <textarea
+                          id="paperAbstract"
+                          rows={3}
+                          className="mt-1 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                          placeholder="研究背景、核心问题、方法与结论"
+                          value={paperFields.abstract}
+                          onChange={(e) =>
+                            setPaperFields((prev) => ({ ...prev, abstract: e.target.value }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="paperKeywords" className="block text-sm font-medium text-gray-700">
+                          关键词
+                        </label>
+                        <input
+                          id="paperKeywords"
+                          className="mt-1 block w-full rounded-lg border-gray-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          placeholder="如：政策评估、双重差分、产业升级"
+                          value={paperFields.keywords}
+                          onChange={(e) =>
+                            setPaperFields((prev) => ({ ...prev, keywords: e.target.value }))
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-gray-700">论文模板</div>
+                      <select
+                        value={selectedPaperTemplateId}
+                        onChange={(e) => setSelectedPaperTemplateId(e.target.value)}
+                        className="mt-2 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      >
+                        {paperTemplates.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="mt-2 text-xs text-slate-500">
+                        {paperTemplates.find((item) => item.id === selectedPaperTemplateId)
+                          ?.description}
+                      </div>
+                      {selectedPaperTemplateId === 'custom' && (
+                        <textarea
+                          rows={4}
+                          className="mt-3 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                          placeholder="输入你偏好的论文风格要求"
+                          value={customPaperTemplate}
+                          onChange={(e) => setCustomPaperTemplate(e.target.value)}
+                        />
+                      )}
+                    </div>
+                    <div className="space-y-3">
+                      {[
+                        { key: 'introduction', label: '引言材料' },
+                        { key: 'literature', label: '文献综述要点' },
+                        { key: 'variables', label: '变量选择与数据' },
+                        { key: 'model', label: '理论模型与机制' },
+                        { key: 'design', label: '研究设计与识别策略' },
+                        { key: 'results', label: '实证结果分析' },
+                        { key: 'robustness', label: '拓展与稳健性' },
+                        { key: 'conclusion', label: '结论与政策含义' },
+                      ].map((item) => (
+                        <div key={item.key}>
+                          <label className="block text-sm font-medium text-gray-700">
+                            {item.label}
+                          </label>
+                          <textarea
+                            rows={3}
+                            className="mt-1 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                            placeholder={`输入${item.label}材料`}
+                            value={paperFields[item.key as keyof typeof paperFields]}
+                            onChange={(e) =>
+                              setPaperFields((prev) => ({
+                                ...prev,
+                                [item.key]: e.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div>
+                      <label htmlFor="paperExtraPrompt" className="block text-sm font-medium text-gray-700">
+                        额外写作要求
+                      </label>
+                      <textarea
+                        id="paperExtraPrompt"
+                        rows={3}
+                        className="mt-1 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        placeholder="例如：强调识别策略，避免夸大因果"
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                      />
+                    </div>
+                  </>
                 )}
                 <button
                   onClick={generateDocument}
                   disabled={!selectedType || isGenerating}
                   className={`w-full px-4 py-2 rounded-md text-white ${
-                    !selectedType || isGenerating
+                    (writingMode === 'gov' && !selectedType) || isGenerating
                       ? 'bg-gray-400 cursor-not-allowed'
                       : 'bg-blue-600 hover:bg-blue-700'
                   }`}
