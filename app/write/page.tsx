@@ -1001,7 +1001,7 @@ function WritePageContent() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          type: selectedType,
+          type: writingMode === 'paper' ? 'paper' : selectedType,
           prompt: `请仅对以下选中文本进行润色/替换，保持原有段落结构与格式，不要输出其他内容。\n修改要求：${editPrompt}\n\n选中文本：\n${selectedText}`,
         }),
       })
@@ -1282,7 +1282,7 @@ function WritePageContent() {
                 )}
                 <button
                   onClick={generateDocument}
-                  disabled={!selectedType || isGenerating}
+                  disabled={(writingMode === 'gov' && !selectedType) || isGenerating}
                   className={`w-full px-4 py-2 rounded-md text-white ${
                     (writingMode === 'gov' && !selectedType) || isGenerating
                       ? 'bg-gray-400 cursor-not-allowed'
@@ -1401,9 +1401,9 @@ function WritePageContent() {
                   <button
                     type="button"
                     onClick={generateDocument}
-                    disabled={!selectedType || isGenerating}
+                    disabled={(writingMode === 'gov' && !selectedType) || isGenerating}
                     className={`rounded-md px-3 py-1 text-xs ${
-                      !selectedType || isGenerating
+                      (writingMode === 'gov' && !selectedType) || isGenerating
                         ? 'bg-gray-200 text-gray-500'
                         : 'bg-indigo-600 text-white hover:bg-indigo-700'
                     }`}
