@@ -1568,9 +1568,21 @@ function WritePageContent() {
         method: 'POST',
         body: formData,
       })
-      const data = await response.json()
-      if (data.error) {
-        throw new Error(data.error)
+      const rawText = await response.text()
+      if (!rawText) {
+        throw new Error('服务返回空响应')
+      }
+      let data: { error?: string; content?: string }
+      try {
+        data = JSON.parse(rawText)
+      } catch (error) {
+        throw new Error(
+          `服务返回非JSON内容：${rawText.slice(0, 200)}${rawText.length > 200 ? '…' : ''}`,
+        )
+      }
+      if (!response.ok || data.error) {
+        const errorMessage = data.error || `请求失败（${response.status}）`
+        throw new Error(errorMessage)
       }
       const idea = normalizeContent(String(data.content ?? '').trim())
       setPdfIdea(idea)
