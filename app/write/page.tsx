@@ -95,7 +95,7 @@ function WritePageContent() {
   const [selectedType, setSelectedType] = useState('')
   const [content, setContent] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
-  const [prompt, setPrompt] = useState('')
+  const [govPrompt, setGovPrompt] = useState('')
   const [selectedTemplateId, setSelectedTemplateId] = useState(templateOptions[0].id)
   const [customTemplate, setCustomTemplate] = useState('')
   const [templateWarning, setTemplateWarning] = useState<string | null>(null)
@@ -117,6 +117,7 @@ function WritePageContent() {
     robustness: '',
     conclusion: '',
   })
+  const [paperExtraPrompt, setPaperExtraPrompt] = useState('')
   const samplePaperFields = {
     title: '数字化转型、融资约束与企业绿色创新',
     abstract:
@@ -256,7 +257,7 @@ function WritePageContent() {
       '输出结构：题目、摘要、关键词、引言、文献综述、变量选择、理论模型、研究设计、实证结果分析、拓展分析、结论。',
       templatePrefix,
       sections,
-      prompt,
+      paperExtraPrompt,
     ]
       .map((item) => item.trim())
       .filter(Boolean)
@@ -873,6 +874,10 @@ function WritePageContent() {
   }, [selectedTemplateId])
 
   useEffect(() => {
+    setTemplateWarning(null)
+  }, [writingMode])
+
+  useEffect(() => {
     if (typeof window !== 'undefined') {
       const stored = window.localStorage.getItem('customTemplate')
       if (stored) {
@@ -945,7 +950,7 @@ function WritePageContent() {
                   selectedTemplateId === 'custom' ? customTemplate : '',
                   templateOptions.find((item) => item.id === selectedTemplateId)?.promptPrefix ??
                     '',
-                  prompt,
+                  govPrompt,
                 ]
                   .map((item) => item.trim())
                   .filter(Boolean)
@@ -959,7 +964,7 @@ function WritePageContent() {
       }
 
       const normalized = normalizeContent(data.content)
-      const withDates = applyDatePlaceholders(normalized, prompt)
+      const withDates = applyDatePlaceholders(normalized, govPrompt)
       setContent(withDates)
       pushHistory(withDates)
       pushVersion(withDates)
@@ -1112,8 +1117,8 @@ function WritePageContent() {
                         rows={6}
                         className="mt-1 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                         placeholder="请输入写作提示，例如：关于召开年度总结会议的通知"
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
+                        value={govPrompt}
+                        onChange={(e) => setGovPrompt(e.target.value)}
                       />
                     </div>
                     <div>
@@ -1274,8 +1279,8 @@ function WritePageContent() {
                         rows={3}
                         className="mt-1 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                         placeholder="例如：强调识别策略，避免夸大因果"
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
+                        value={paperExtraPrompt}
+                        onChange={(e) => setPaperExtraPrompt(e.target.value)}
                       />
                     </div>
                   </>
