@@ -22,6 +22,43 @@ const documentTypes = [
   { id: 'summary', name: '总结', description: '用于总结工作或活动' },
 ]
 
+const templateOptions = [
+  {
+    id: 'general-office',
+    name: '校办通用模板',
+    description: '适用于校办与综合协调类公文',
+    promptPrefix:
+      '模板：校办通用。要求：语气权威、部署清晰，强调“统筹协调、压实责任、时限明确、闭环落实”。',
+  },
+  {
+    id: 'academic-affairs',
+    name: '教务处模板',
+    description: '教学安排、考试管理、教学质量等',
+    promptPrefix:
+      '模板：教务处。要求：教学环节完整，涉及课程/考试/质量要求要写清楚流程、材料、节点。',
+  },
+  {
+    id: 'research-office',
+    name: '科研处模板',
+    description: '科研项目、成果管理、平台建设等',
+    promptPrefix:
+      '模板：科研处。要求：突出项目管理要点、申报条件、评审流程、成果归档与绩效要求。',
+  },
+  {
+    id: 'student-affairs',
+    name: '学工部模板',
+    description: '学生管理、思政教育、奖惩评优等',
+    promptPrefix:
+      '模板：学工部。要求：强调教育引导、过程管理、责任分工与风险防控。',
+  },
+  {
+    id: 'custom',
+    name: '自定义模板',
+    description: '输入学院/部门专用模板要求',
+    promptPrefix: '',
+  },
+]
+
 export default function WritePage() {
   return (
     <Suspense fallback={<div>Loading...</div>}>
@@ -36,6 +73,8 @@ function WritePageContent() {
   const [content, setContent] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [prompt, setPrompt] = useState('')
+  const [selectedTemplateId, setSelectedTemplateId] = useState(templateOptions[0].id)
+  const [customTemplate, setCustomTemplate] = useState('')
   const [editPrompt, setEditPrompt] = useState('')
   const [isPolishing, setIsPolishing] = useState(false)
   const [selection, setSelection] = useState({ start: 0, end: 0 })
@@ -720,7 +759,14 @@ function WritePageContent() {
         },
         body: JSON.stringify({
           type: selectedType,
-          prompt: prompt,
+          prompt: [
+            selectedTemplateId === 'custom' ? customTemplate : '',
+            templateOptions.find((item) => item.id === selectedTemplateId)?.promptPrefix ?? '',
+            prompt,
+          ]
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .join('\n'),
         }),
       })
 
@@ -853,6 +899,35 @@ function WritePageContent() {
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                   />
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-gray-700">模板与规范</div>
+                  <div className="mt-2 grid gap-2">
+                    {templateOptions.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setSelectedTemplateId(item.id)}
+                        className={`rounded-lg border px-3 py-2 text-left text-sm ${
+                          selectedTemplateId === item.id
+                            ? 'border-blue-500 bg-blue-50 text-blue-800'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300'
+                        }`}
+                      >
+                        <div className="font-medium">{item.name}</div>
+                        <div className="text-xs text-slate-500">{item.description}</div>
+                      </button>
+                    ))}
+                  </div>
+                  {selectedTemplateId === 'custom' && (
+                    <textarea
+                      rows={5}
+                      className="mt-3 block w-full rounded-lg border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                      placeholder="输入学院/部门专用模板要求，例如：固定主送、固定落款、常用条款结构等"
+                      value={customTemplate}
+                      onChange={(e) => setCustomTemplate(e.target.value)}
+                    />
+                  )}
                 </div>
                 <button
                   onClick={generateDocument}
