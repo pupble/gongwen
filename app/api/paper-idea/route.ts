@@ -34,7 +34,9 @@ export async function POST(request: Request) {
     const arrayBuffer = await file.arrayBuffer()
     ensureDomMatrixPolyfill()
     const { PDFParse } = await import('pdf-parse')
-    const parser = new PDFParse({ data: Buffer.from(arrayBuffer), disableWorker: true })
+    const { GlobalWorkerOptions } = await import('pdfjs-dist/legacy/build/pdf.mjs')
+    GlobalWorkerOptions.disableWorker = true
+    const parser = new PDFParse({ data: Buffer.from(arrayBuffer) })
     const data = await parser.getText()
     const rawText = String(data.text || '').replace(/\s+/g, ' ').trim()
     const truncated = rawText.slice(0, 12000)
