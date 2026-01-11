@@ -32,10 +32,7 @@ export async function POST(request: Request) {
     }
 
     const arrayBuffer = await file.arrayBuffer()
-    const { DOMMatrix } = await import('@napi-rs/canvas')
-    if (!(globalThis as { DOMMatrix?: unknown }).DOMMatrix) {
-      ;(globalThis as { DOMMatrix?: unknown }).DOMMatrix = DOMMatrix
-    }
+    ensureDomMatrixPolyfill()
     const { PDFParse } = await import('pdf-parse')
     const parser = new PDFParse({ data: Buffer.from(arrayBuffer) })
     const data = await parser.getText()
@@ -82,4 +79,83 @@ function buildPaperIdeaSystemPrompt() {
 - 不编造具体数据或政策细节；不足处用〔占位〕标注
 - 不使用Markdown，不要列表符号之外的花哨符号
 - 输出为一篇连续的研究思路文本，不解释写作过程`
+}
+
+function ensureDomMatrixPolyfill() {
+  const globalScope = globalThis as {
+    DOMMatrix?: typeof SimpleDOMMatrix
+  }
+  if (globalScope.DOMMatrix) return
+  globalScope.DOMMatrix = SimpleDOMMatrix
+}
+
+type DomMatrixInitLike =
+  | number[]
+  | {
+      a?: number
+      b?: number
+      c?: number
+      d?: number
+      e?: number
+      f?: number
+    }
+
+class SimpleDOMMatrix {
+  a = 1
+  b = 0
+  c = 0
+  d = 1
+  e = 0
+  f = 0
+
+  constructor(init?: DomMatrixInitLike | string) {
+    if (Array.isArray(init)) {
+      this.a = init[0] ?? 1
+      this.b = init[1] ?? 0
+      this.c = init[2] ?? 0
+      this.d = init[3] ?? 1
+      this.e = init[4] ?? 0
+      this.f = init[5] ?? 0
+    } else if (init && typeof init === 'object') {
+      this.a = init.a ?? 1
+      this.b = init.b ?? 0
+      this.c = init.c ?? 0
+      this.d = init.d ?? 1
+      this.e = init.e ?? 0
+      this.f = init.f ?? 0
+    }
+  }
+
+  multiplySelf(other?: DomMatrixInitLike) {
+    if (!other) return this
+    const m2 = new SimpleDOMMatrix(other)
+    const a = this.a * m2.a + this.c * m2.b
+    const b = this.b * m2.a + this.d * m2.b
+    const c = this.a * m2.c + this.c * m2.d
+    const d = this.b * m2.c + this.d * m2.d
+    const e = this.a * m2.e + this.c * m2.f + this.e
+    const f = this.b * m2.e + this.d * m2.f + this.f
+    this.a = a
+    this.b = b
+    this.c = c
+    this.d = d
+    this.e = e
+    this.f = f
+    return this
+  }
+
+  scaleSelf(scaleX = 1, scaleY = scaleX) {
+    return this.multiplySelf({ a: scaleX, d: scaleY })
+  }
+
+  translateSelf(tx = 0, ty = 0) {
+    return this.multiplySelf({ e: tx, f: ty })
+  }
+
+  rotateSelf(_rotX = 0, _rotY = 0, rotZ = 0) {
+    const angle = (rotZ * Math.PI) / 180
+    const cos = Math.cos(angle)
+    const sin = Math.sin(angle)
+    return this.multiplySelf({ a: cos, b: sin, c: -sin, d: cos })
+  }
 }
