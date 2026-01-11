@@ -32,6 +32,10 @@ export async function POST(request: Request) {
     }
 
     const arrayBuffer = await file.arrayBuffer()
+    const { DOMMatrix } = await import('@napi-rs/canvas')
+    if (!(globalThis as { DOMMatrix?: unknown }).DOMMatrix) {
+      ;(globalThis as { DOMMatrix?: unknown }).DOMMatrix = DOMMatrix
+    }
     const { PDFParse } = await import('pdf-parse')
     const parser = new PDFParse({ data: Buffer.from(arrayBuffer) })
     const data = await parser.getText()
