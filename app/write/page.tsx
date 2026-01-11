@@ -188,6 +188,7 @@ function WritePageContent() {
   const [pdfIdea, setPdfIdea] = useState('')
   const [pdfError, setPdfError] = useState<string | null>(null)
   const [isPdfGenerating, setIsPdfGenerating] = useState(false)
+  const [isPdfDragging, setIsPdfDragging] = useState(false)
   const lastHistoryTimeRef = useRef(0)
 
   const normalizeContent = (value: string) => {
@@ -1597,6 +1598,20 @@ function WritePageContent() {
     }
   }
 
+  const handlePdfDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setIsPdfDragging(false)
+    const file = event.dataTransfer.files?.[0]
+    if (!file) return
+    if (file.type !== 'application/pdf') {
+      setPdfError('仅支持 PDF 文件')
+      return
+    }
+    setPdfError(null)
+    setPdfFile(file)
+  }
+
   const resumePaperGeneration = async () => {
     if (writingMode !== 'paper' || paperResumeIndex === null || !paperResumeKeys) return
     const startIndex = paperResumeIndex
@@ -1813,13 +1828,33 @@ function WritePageContent() {
                   <>
                     <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
                       <div className="text-sm font-medium text-gray-700">PDF 研究思路</div>
-                      <div className="mt-2 flex flex-col gap-2">
+                      <div
+                        className={`mt-2 flex flex-col gap-2 rounded-lg border border-dashed px-3 py-2 transition ${
+                          isPdfDragging ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200'
+                        }`}
+                        onDragEnter={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setIsPdfDragging(true)
+                        }}
+                        onDragOver={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                        }}
+                        onDragLeave={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setIsPdfDragging(false)
+                        }}
+                        onDrop={handlePdfDrop}
+                      >
                         <input
                           type="file"
                           accept="application/pdf"
                           onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
                           className="block w-full text-xs text-slate-500"
                         />
+                        <div className="text-[11px] text-slate-400">支持拖拽 PDF 到此区域</div>
                         <button
                           type="button"
                           onClick={generateIdeaFromPdf}
