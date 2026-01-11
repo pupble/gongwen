@@ -153,6 +153,8 @@ class SimpleDOMMatrix {
   }
 
   rotateSelf(_rotX = 0, _rotY = 0, rotZ = 0) {
+    void _rotX
+    void _rotY
     const angle = (rotZ * Math.PI) / 180
     const cos = Math.cos(angle)
     const sin = Math.sin(angle)
