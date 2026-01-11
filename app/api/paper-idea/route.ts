@@ -57,7 +57,9 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     console.error('Error generating paper idea:', error)
-    return NextResponse.json({ error: '生成研究思路时发生错误' }, { status: 500 })
+    const message =
+      error instanceof Error ? error.message : '未知错误，请查看服务端日志'
+    return NextResponse.json({ error: `生成研究思路时发生错误：${message}` }, { status: 500 })
   }
 }
 
