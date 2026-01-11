@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     ensureDomMatrixPolyfill()
     const { PDFParse } = await import('pdf-parse')
     const { GlobalWorkerOptions } = await import('pdfjs-dist/legacy/build/pdf.mjs')
-    GlobalWorkerOptions.disableWorker = true
+    ;(GlobalWorkerOptions as { workerSrc?: string }).workerSrc = 'disabled'
     const parser = new PDFParse({ data: Buffer.from(arrayBuffer) })
     const data = await parser.getText()
     const rawText = String(data.text || '').replace(/\s+/g, ' ').trim()
